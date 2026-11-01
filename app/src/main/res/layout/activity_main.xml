@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:background="#0d1117"
+    android:padding="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <Button
+        android:textColor="#0d1117"
+        android:id="@+id/btnSelectFile"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Select .so File"/>
+    <TextView
+        android:textColor="#8b949e"
+        android:id="@+id/txtSelectedFile"
+        android:padding="8dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="No file selected"/>
+    <Spinner
+        android:id="@+id/spinnerArch"
+        android:background="#ff041824"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"/>
+    <EditText
+        android:textColor="#c9d1d9"
+        android:textColorHint="#8b949e"
+        android:id="@+id/edtOffset"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Offset (hex)"/>
+    <EditText
+        android:textColor="#c9d1d9"
+        android:textColorHint="#8b949e"
+        android:id="@+id/edtHex"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="HEX payload"/>
+    <EditText
+        android:textColor="#c9d1d9"
+        android:textColorHint="#8b949e"
+        android:id="@+id/edtAsm"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="ASM payload"/>
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <Button
+            android:textColor="#ffffff"
+            android:id="@+id/btnPatch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="Patch Single"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"/>
+        <Button
+            android:textColor="#c9d1d9"
+            android:id="@+id/btnDump"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="Dump Library"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"/>
+    </LinearLayout>
+    <TextView
+        android:typeface="monospace"
+        android:textColor="#c9d1d9"
+        android:textColorLink="#ff0951f7"
+        android:id="@+id/txtLog"
+        android:background="#161b22"
+        android:padding="8dp"
+        android:scrollbars="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="16dp"
+        android:textIsSelectable="true"/>
+</LinearLayout>

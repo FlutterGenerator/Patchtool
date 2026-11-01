@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="architectures">
+        <item>arm64</item>
+        <item>arm32</item>
+        <item>x86_64</item>
+        <item>x86</item>
+        <item>unsupported</item>
+    </array>
+</resources>
