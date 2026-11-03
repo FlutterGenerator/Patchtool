@@ -7,9 +7,11 @@
 //                      String offsetHex, String hexPayload, String asmPayload, String arch)
 //   String dumpLibraryFile(String inputFile, String outputFile)
 //
-// ASM payloads need Keystone. It is optional: put the headers into jni/keystone/include/keystone
-// and libkeystone.a into jni/keystone/libs/<abi>/ and Android.mk enables it (-DUSE_KEYSTONE).
+// ASM payloads need Keystone, the instruction count in getElfInfo needs Capstone. Both are optional and
+// enabled automatically when their headers are on the include path (or with -DUSE_KEYSTONE / -DUSE_CAPSTONE);
+// the static libs must be linked in Android.mk.
 // Without Keystone everything works except "patch_asm" / the ASM field (HEX still works).
+// Without Capstone the instruction count is reported as N/A.
 
 #include <jni.h>
 
@@ -28,8 +30,53 @@
 #include <utility>
 #include <vector>
 
+#include <cctype>
+
+// Keystone / Capstone are picked up automatically when their headers are reachable from the include path
+// (any of capstone/capstone.h, Capstone/capstone.h, capstone.h - same for keystone). Define NO_KEYSTONE /
+// NO_CAPSTONE to force them off. The static libraries must be linked in Android.mk by you.
+#if !defined(NO_KEYSTONE) && !defined(USE_KEYSTONE)
+#if defined(__has_include)
+#if __has_include(<keystone/keystone.h>) || __has_include(<Keystone/keystone.h>) || __has_include(<keystone.h>)
+#define USE_KEYSTONE 1
+#endif
+#endif
+#endif
+
+#if !defined(NO_CAPSTONE) && !defined(USE_CAPSTONE)
+#if defined(__has_include)
+#if __has_include(<capstone/capstone.h>) || __has_include(<Capstone/capstone.h>) || __has_include(<capstone.h>)
+#define USE_CAPSTONE 1
+#endif
+#endif
+#endif
+
 #ifdef USE_KEYSTONE
+#if defined(__has_include)
+#if __has_include(<keystone/keystone.h>)
+#include <keystone/keystone.h>
+#elif __has_include(<Keystone/keystone.h>)
 #include <Keystone/keystone.h>
+#else
+#include <keystone.h>
+#endif
+#else
+#include <keystone/keystone.h>
+#endif
+#endif
+
+#ifdef USE_CAPSTONE
+#if defined(__has_include)
+#if __has_include(<capstone/capstone.h>)
+#include <capstone/capstone.h>
+#elif __has_include(<Capstone/capstone.h>)
+#include <Capstone/capstone.h>
+#else
+#include <capstone.h>
+#endif
+#else
+#include <capstone/capstone.h>
+#endif
 #endif
 
 namespace {
@@ -262,6 +309,8 @@ struct ElfFile {
     uint64_t entry = 0;
     uint32_t phnum = 0;
     uint32_t shnum = 0;
+    uint64_t textOff = 0;    // file offset / size of the .text section (0 if not found)
+    uint64_t textSize = 0;
     size_t symTotal = 0;
     std::vector<Sym> syms;
 };
@@ -285,6 +334,25 @@ void parseElfT(const Bytes &d, ElfFile &I) {
     std::vector<Sh> secs(eh.e_shnum);
     for (size_t i = 0; i < secs.size(); i++)
         memcpy(&secs[i], d.data() + shoff + i * eh.e_shentsize, sizeof(Sh));
+
+    // locate the .text section by name
+    if (eh.e_shstrndx < secs.size()) {
+        const Sh &ss = secs[eh.e_shstrndx];
+        uint64_t so = ss.sh_offset, sz = ss.sh_size;
+        if (so <= d.size() && sz <= d.size() - so) {
+            for (size_t i = 0; i < secs.size(); i++) {
+                const Sh &s = secs[i];
+                if (s.sh_name >= sz || (int) s.sh_type == SHT_NOBITS) continue;
+                const char *p = (const char *) d.data() + so + s.sh_name;
+                size_t maxn = (size_t) (sz - s.sh_name);
+                if (strnlen(p, maxn) != 5 || memcmp(p, ".text", 5) != 0) continue;
+                if (s.sh_offset > d.size() || s.sh_size > d.size() - (uint64_t) s.sh_offset) continue;
+                I.textOff = s.sh_offset;
+                I.textSize = s.sh_size;
+                break;
+            }
+        }
+    }
 
     // prefer .symtab, fall back to .dynsym (stripped libraries)
     // (symTotal counts both tables; the symbol list is taken from the first one found)
@@ -427,6 +495,58 @@ Bytes assemble(const std::string &text, const std::string &arch) {
 #else
     (void) text;
     throw Err("ASM is not available: libmodmenu was built without Keystone. Use a HEX payload.");
+#endif
+}
+
+// ----------------------------------------------------------------------------
+// disassembler (Capstone, optional) - instruction count of .text
+// ----------------------------------------------------------------------------
+
+// Returns the number of instructions in .text, or -1 when it cannot be computed.
+long long countTextInstructions(const Bytes &d, const ElfFile &I) {
+#ifdef USE_CAPSTONE
+    if (I.textSize == 0 || I.textOff > d.size() || I.textSize > d.size() - I.textOff) return -1;
+
+    cs_arch a;
+    cs_mode m;
+    size_t skip;   // bytes to skip over undecodable data
+    switch (I.machine) {
+        case EM_AARCH64: a = CS_ARCH_AARCH64; m = CS_MODE_LITTLE_ENDIAN; skip = 4; break;
+        case EM_ARM:     a = CS_ARCH_ARM;     m = (cs_mode) (CS_MODE_ARM | CS_MODE_LITTLE_ENDIAN); skip = 4; break;
+        case EM_386:     a = CS_ARCH_X86;     m = CS_MODE_32; skip = 1; break;
+        case EM_X86_64:  a = CS_ARCH_X86;     m = CS_MODE_64; skip = 1; break;
+        default: return -1;
+    }
+
+    csh h = 0;
+    if (cs_open(a, m, &h) != CS_ERR_OK) return -1;
+    cs_insn *insn = cs_malloc(h);
+    if (!insn) {
+        cs_close(&h);
+        return -1;
+    }
+
+    const uint8_t *code = d.data() + I.textOff;
+    size_t left = (size_t) I.textSize;
+    uint64_t addr = 0;
+    long long count = 0;
+    while (left > 0) {
+        if (cs_disasm_iter(h, &code, &left, &addr, insn)) {
+            count++;
+        } else {
+            size_t s = skip < left ? skip : left;   // bad bytes: skip and continue
+            code += s;
+            left -= s;
+            addr += s;
+        }
+    }
+    cs_free(insn, 1);
+    cs_close(&h);
+    return count;
+#else
+    (void) d;
+    (void) I;
+    return -1;
 #endif
 }
 
@@ -612,7 +732,13 @@ std::string doInfo(const std::string &path) {
     r += "# of Program Headers          : " + std::to_string(I.phnum) + "\n";
     r += "# of Sections                 : " + std::to_string(I.shnum) + "\n";
     r += "# of Symbols (Total)          : " + std::to_string(I.symTotal) + "\n";
+    long long insns = countTextInstructions(d, I);
+#ifdef USE_CAPSTONE
+    r += "# of Instructions (.text)     : " + (insns >= 0 ? std::to_string(insns) : std::string("N/A")) + "\n";
+#else
+    (void) insns;
     r += "# of Instructions (.text)     : N/A (Requires Capstone)\n";
+#endif
     r += "# of Functions (Filtered)     : " + std::to_string(funcs.size()) + "\n";
     return r;
 }

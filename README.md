@@ -11,3 +11,8 @@
 # Android Platform: android-21
 # https://github.com/FlutterGenerator/keystone-capstone-android/releases#release-keystone-capstone-android-28204991952
 # Modded by tojik_proof_93 @FlutterGenerator
+
+## 📚 User Guide / Руководство пользователя
+
+- 🇷🇺 [Руководство пользователя (Русский)](PatchTool_Guide_for_Users_RU.md)
+- 🇬🇧 [PatchTool User Guide (English)](PatchTool_Guide_for_Users_EN.md)

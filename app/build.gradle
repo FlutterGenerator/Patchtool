@@ -37,7 +37,7 @@ android {
     }
 }
 
+//dependencies must be placed below 'android' brackets to get it work on AIDE
 dependencies {
-    implementation 'androidx.arch.core:core-runtime:2.2.0'
-    implementation 'androidx.core:core:1.15.0'
+   implementation fileTree(dir: 'libs', include: ['*.jar'])
 }
